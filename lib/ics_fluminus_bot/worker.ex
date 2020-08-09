@@ -34,7 +34,7 @@ defmodule IcsFluminusBot.Worker do
     last_fetched =
       case File.read("./#{@last_fetched_file}") do
         {:ok, content} ->
-          String.to_integer(content)
+          content |> String.trim() |> String.to_integer()
 
         {:error, reason} ->
           Logger.error("Unable to open file: #{reason}. Using 0 as the last_fetched_unix_time.")
@@ -62,33 +62,38 @@ defmodule IcsFluminusBot.Worker do
     {:ok, auth = %Authorization{}} = Authorization.vafs_jwt(username, password)
     {:ok, modules} = API.modules(auth, true)
 
-    Enum.each(modules, fn module = %Module{code: code, name: name} ->
-      {:ok, announcements} = Module.announcements(module, auth)
+    new_last_fetched =
+      Enum.reduce(modules, last_fetched, fn module = %Module{code: code, name: name}, acc ->
+        {:ok, announcements} = Module.announcements(module, auth)
 
-      announcements
-      |> Enum.filter(fn %{datetime: datetime} ->
-        DateTime.compare(datetime, last_fetched) != :lt
+        announcements
+        |> Enum.filter(fn %{datetime: datetime} ->
+          DateTime.compare(datetime, last_fetched) == :gt
+        end)
+        |> Enum.reduce(acc, fn %{title: title, description: description, datetime: datetime},
+                               acc ->
+          datetime_formatted =
+            datetime
+            |> DateTime.shift_zone!("Asia/Singapore")
+            |> NimbleStrftime.format("%d %b %Y, %H:%M:%S")
+
+          message =
+            "*#{code} - #{name}*\n*#{title}*\n#{datetime_formatted}\n#{String.trim(description)}"
+
+          Logger.info("New announcement in #{code}, datetime = #{datetime_formatted}")
+          ExGram.send_message(@authorized_id, message, parse_mode: "markdown")
+
+          if DateTime.compare(datetime, acc) == :gt, do: datetime, else: acc
+        end)
       end)
-      |> Enum.each(fn %{title: title, description: description, datetime: datetime} ->
-        datetime_formatted =
-          datetime
-          |> DateTime.shift_zone!("Asia/Singapore")
-          |> NimbleStrftime.format("%d %b %Y, %H:%M:%S")
-
-        message =
-          "*#{code} - #{name}*\n*#{title}*\n#{datetime_formatted}\n#{String.trim(description)}"
-
-        ExGram.send_message(@authorized_id, message, parse_mode: "markdown")
-      end)
-    end)
 
     Logger.info("Scheduling next fetch in #{div(@interval, 1000)}s")
     Process.send_after(self(), :fetch, @interval)
 
-    unix_time_now = DateTime.utc_now() |> DateTime.to_unix()
-    File.write!("./#{@last_fetched_file}", Integer.to_string(unix_time_now))
+    new_last_fetched_unix = DateTime.to_unix(new_last_fetched)
+    File.write!("./#{@last_fetched_file}", Integer.to_string(new_last_fetched_unix))
 
-    {:noreply, {credential, unix_time_now}}
+    {:noreply, {credential, new_last_fetched_unix}}
   end
 
   # Client functionality
