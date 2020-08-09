@@ -2,7 +2,7 @@ defmodule IcsFluminusBot.Worker do
   @moduledoc """
   The GenServer in charge of polling announcement of different modules.
 
-  The state is {{username, password}, unix_time_last_fetched}
+  The state is {{username, password}, iso8601_last_fetched}
   """
 
   # 1 minute
@@ -34,18 +34,15 @@ defmodule IcsFluminusBot.Worker do
     last_fetched =
       case File.read("./#{@last_fetched_file}") do
         {:ok, content} ->
-          content |> String.trim() |> String.to_integer()
+          {:ok, datetime, _} = content |> String.trim() |> DateTime.from_iso8601()
+          datetime
 
         {:error, reason} ->
-          Logger.error("Unable to open file: #{reason}. Using 0 as the last_fetched_unix_time.")
-          0
+          Logger.error("Unable to open file: #{reason}. Using unix epoch as the last_fetched.")
+          DateTime.from_unix!(0)
       end
 
-    Logger.info(
-      "Successfully initialized #{__MODULE__} with last_fetched #{last_fetched} = #{
-        last_fetched |> DateTime.from_unix!() |> DateTime.to_iso8601()
-      }"
-    )
+    Logger.info("Successfully initialized #{__MODULE__} with last_fetched #{last_fetched}")
 
     Logger.info("Scheduling next fetch in #{div(@interval, 1000)}s")
     Process.send_after(self(), :fetch, @interval)
@@ -54,10 +51,8 @@ defmodule IcsFluminusBot.Worker do
   end
 
   @impl true
-  def handle_info(:fetch, {credential = {username, password}, last_fetched_unix}) do
+  def handle_info(:fetch, {credential = {username, password}, last_fetched}) do
     Logger.info("Fetching announcements")
-
-    last_fetched = DateTime.from_unix!(last_fetched_unix)
 
     {:ok, auth = %Authorization{}} = Authorization.vafs_jwt(username, password)
     {:ok, modules} = API.modules(auth, true)
@@ -87,18 +82,18 @@ defmodule IcsFluminusBot.Worker do
         end)
       end)
 
-    new_last_fetched_unix = DateTime.to_unix(new_last_fetched)
-    File.write!("./#{@last_fetched_file}", Integer.to_string(new_last_fetched_unix))
+    new_last_fetched_iso8601 = DateTime.to_iso8601(new_last_fetched)
+    File.write!("./#{@last_fetched_file}", new_last_fetched_iso8601)
 
     Logger.info(
       "Scheduling next fetch in #{div(@interval, 1000)}s, new_last_fetched = #{
-        new_last_fetched_unix
+        new_last_fetched_iso8601
       }"
     )
 
     Process.send_after(self(), :fetch, @interval)
 
-    {:noreply, {credential, new_last_fetched_unix}}
+    {:noreply, {credential, new_last_fetched_iso8601}}
   end
 
   # Client functionality
