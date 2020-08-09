@@ -87,11 +87,16 @@ defmodule IcsFluminusBot.Worker do
         end)
       end)
 
-    Logger.info("Scheduling next fetch in #{div(@interval, 1000)}s")
-    Process.send_after(self(), :fetch, @interval)
-
     new_last_fetched_unix = DateTime.to_unix(new_last_fetched)
     File.write!("./#{@last_fetched_file}", Integer.to_string(new_last_fetched_unix))
+
+    Logger.info(
+      "Scheduling next fetch in #{div(@interval, 1000)}s, new_last_fetched = #{
+        new_last_fetched_unix
+      }"
+    )
+
+    Process.send_after(self(), :fetch, @interval)
 
     {:noreply, {credential, new_last_fetched_unix}}
   end
