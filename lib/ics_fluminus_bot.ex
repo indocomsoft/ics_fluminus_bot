@@ -36,7 +36,9 @@ defmodule IcsFluminusBot do
     answer(cnt, "Welcome to ICS Fluminus Bot, #{first_name}! #{status}")
   end
 
-  def handle({:command, :start, %{}}, cnt) do
+  def handle({:command, :start, %{id: id, first_name: first_name}}, cnt) do
+    Logger.debug("Unauthorized user, id = #{id}, first_name = #{first_name}")
+
     answer(
       cnt,
       "You're not an authorized user. Create your own fork from https://github.com/indocomsoft/ics_fluminus_bot"
