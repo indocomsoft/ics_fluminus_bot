@@ -93,7 +93,7 @@ defmodule IcsFluminusBot.Worker do
 
     Process.send_after(self(), :fetch, @interval)
 
-    {:noreply, {credential, new_last_fetched_iso8601}}
+    {:noreply, {credential, new_last_fetched}}
   end
 
   # Client functionality
