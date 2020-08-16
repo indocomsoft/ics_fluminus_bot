@@ -29,8 +29,6 @@ defmodule IcsFluminusBot.Worker do
     %{username: username, password: password} =
       Application.get_env(:ics_fluminus_bot, :credential)
 
-    {:ok, %Authorization{}} = Authorization.vafs_jwt(username, password)
-
     last_fetched =
       case File.read("./#{@last_fetched_file}") do
         {:ok, content} ->
@@ -54,46 +52,52 @@ defmodule IcsFluminusBot.Worker do
   def handle_info(:fetch, {credential = {username, password}, last_fetched}) do
     Logger.info("Fetching announcements")
 
-    {:ok, auth = %Authorization{}} = Authorization.vafs_jwt(username, password)
-    {:ok, modules} = API.modules(auth, true)
+    try do
+      {:ok, auth = %Authorization{}} = Authorization.vafs_jwt(username, password)
+      {:ok, modules} = API.modules(auth, true)
 
-    new_last_fetched =
-      Enum.reduce(modules, last_fetched, fn module = %Module{code: code, name: name}, acc ->
-        {:ok, announcements} = Module.announcements(module, auth)
+      new_last_fetched =
+        Enum.reduce(modules, last_fetched, fn module = %Module{code: code, name: name}, acc ->
+          {:ok, announcements} = Module.announcements(module, auth)
 
-        announcements
-        |> Enum.filter(fn %{datetime: datetime} ->
-          DateTime.compare(datetime, last_fetched) == :gt
+          announcements
+          |> Enum.filter(fn %{datetime: datetime} ->
+            DateTime.compare(datetime, last_fetched) == :gt
+          end)
+          |> Enum.reduce(acc, fn %{title: title, description: description, datetime: datetime},
+                                 acc ->
+            datetime_formatted =
+              datetime
+              |> DateTime.shift_zone!("Asia/Singapore")
+              |> NimbleStrftime.format("%d %b %Y, %H:%M:%S")
+
+            message =
+              "*#{code} - #{name}*\n*#{title}*\n#{datetime_formatted}\n#{String.trim(description)}"
+
+            Logger.info("New announcement in #{code}, datetime = #{datetime_formatted}")
+            ExGram.send_message(@authorized_id, message, parse_mode: "markdown")
+
+            if DateTime.compare(datetime, acc) == :gt, do: datetime, else: acc
+          end)
         end)
-        |> Enum.reduce(acc, fn %{title: title, description: description, datetime: datetime},
-                               acc ->
-          datetime_formatted =
-            datetime
-            |> DateTime.shift_zone!("Asia/Singapore")
-            |> NimbleStrftime.format("%d %b %Y, %H:%M:%S")
 
-          message =
-            "*#{code} - #{name}*\n*#{title}*\n#{datetime_formatted}\n#{String.trim(description)}"
+      new_last_fetched_iso8601 = DateTime.to_iso8601(new_last_fetched)
+      File.write!("./#{@last_fetched_file}", new_last_fetched_iso8601)
 
-          Logger.info("New announcement in #{code}, datetime = #{datetime_formatted}")
-          ExGram.send_message(@authorized_id, message, parse_mode: "markdown")
+      Logger.info(
+        "Scheduling next fetch in #{div(@interval, 1000)}s, new_last_fetched = #{
+          new_last_fetched_iso8601
+        }"
+      )
 
-          if DateTime.compare(datetime, acc) == :gt, do: datetime, else: acc
-        end)
-      end)
+      Process.send_after(self(), :fetch, @interval)
 
-    new_last_fetched_iso8601 = DateTime.to_iso8601(new_last_fetched)
-    File.write!("./#{@last_fetched_file}", new_last_fetched_iso8601)
-
-    Logger.info(
-      "Scheduling next fetch in #{div(@interval, 1000)}s, new_last_fetched = #{
-        new_last_fetched_iso8601
-      }"
-    )
-
-    Process.send_after(self(), :fetch, @interval)
-
-    {:noreply, {credential, new_last_fetched}}
+      {:noreply, {credential, new_last_fetched}}
+    rescue
+      error ->
+        Logger.error("Unable to fetch announcement, error = #{error}")
+        {:noreply, {credential, last_fetched}}
+    end
   end
 
   # Client functionality
