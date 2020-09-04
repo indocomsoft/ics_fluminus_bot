@@ -12,6 +12,8 @@ defmodule IcsFluminusBot.Worker do
 
   @authorized_id Application.get_env(:ics_fluminus_bot, :id)
 
+  @message_max_length 4096
+
   use GenServer
 
   require Logger
@@ -75,7 +77,12 @@ defmodule IcsFluminusBot.Worker do
               "*#{code} - #{name}*\n*#{title}*\n#{datetime_formatted}\n#{String.trim(description)}"
 
             Logger.info("New announcement in #{code}, datetime = #{datetime_formatted}")
-            ExGram.send_message(@authorized_id, message, parse_mode: "markdown")
+
+            message
+            |> split_message()
+            |> Enum.each(fn msg ->
+              ExGram.send_message(@authorized_id, msg, parse_mode: "markdown")
+            end)
 
             if DateTime.compare(datetime, acc) == :gt, do: datetime, else: acc
           end)
@@ -97,6 +104,37 @@ defmodule IcsFluminusBot.Worker do
       error ->
         Logger.error("Unable to fetch announcement, error = #{error}")
         {:noreply, {credential, last_fetched}}
+    end
+  end
+
+  def split_message(message) when is_binary(message) do
+    length = String.length(message)
+
+    if length > @message_max_length do
+      chunk_len = chunk_length(length)
+      num_chunks = div(length - 1, chunk_len) + 1
+
+      message
+      |> String.graphemes()
+      |> Enum.chunk_every(chunk_len)
+      |> Enum.with_index()
+      |> Enum.map(fn {chunk, i} ->
+        Enum.join(chunk) <> "\n(#{i + 1}/#{num_chunks})"
+      end)
+    else
+      [message]
+    end
+  end
+
+  def chunk_length(length), do: chunk_length(length, Enum.min([length, @message_max_length]))
+
+  def chunk_length(length, result) do
+    num_chunks = div(length - 1, result) + 1
+    # 8 for each of \n, (, ), / with 4 buffer
+    if result + 8 + String.length("#{num_chunks}") <= @message_max_length do
+      result
+    else
+      chunk_length(length, result - 1)
     end
   end
 
