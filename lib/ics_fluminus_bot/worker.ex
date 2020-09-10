@@ -107,7 +107,7 @@ defmodule IcsFluminusBot.Worker do
     end
   end
 
-  def split_message(message) when is_binary(message) do
+  defp split_message(message) when is_binary(message) do
     length = String.length(message)
 
     if length > @message_max_length do
@@ -126,9 +126,9 @@ defmodule IcsFluminusBot.Worker do
     end
   end
 
-  def chunk_length(length), do: chunk_length(length, Enum.min([length, @message_max_length]))
+  defp chunk_length(length), do: chunk_length(length, Enum.min([length, @message_max_length]))
 
-  def chunk_length(length, result) do
+  defp chunk_length(length, result) do
     num_chunks = div(length - 1, result) + 1
     # 8 for each of \n, (, ), / with 4 buffer
     if result + 8 + String.length("#{num_chunks}") <= @message_max_length do
