@@ -19,7 +19,7 @@ case token do
     config :ex_gram, token: token
 
     id =
-      System.get_env("ID") ||
+      System.get_env("ID") |> String.to_integer() ||
         raise """
         environment variable ID is missing.
         """
