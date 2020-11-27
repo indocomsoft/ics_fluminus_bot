@@ -36,5 +36,14 @@ case token do
         environment variable PASSWORD is missing.
         """
 
-    config :ics_fluminus_bot, id: id, credential: %{username: username, password: password}
+    state_base_dir =
+      System.get_env("STATE_BASE_DIR") ||
+        raise """
+        environment variable STATE_BASE_DIR is missing.
+        """
+
+    config :ics_fluminus_bot,
+      id: id,
+      credential: %{username: username, password: password},
+      state_base_dir: state_base_dir
 end

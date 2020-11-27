@@ -8,7 +8,8 @@ defmodule IcsFluminusBot.Worker do
   # 1 minute
   @interval 1 * 60 * 1000
 
-  @last_fetched_file "state.dat"
+  @base_dir Application.get_env(:ics_fluminus_bot, :state_base_dir)
+  @last_fetched_file Path.join(@base_dir, "state.dat")
 
   @authorized_id Application.get_env(:ics_fluminus_bot, :id)
 
@@ -32,7 +33,7 @@ defmodule IcsFluminusBot.Worker do
       Application.get_env(:ics_fluminus_bot, :credential)
 
     last_fetched =
-      case File.read("./#{@last_fetched_file}") do
+      case File.read(@last_fetched_file) do
         {:ok, content} ->
           {:ok, datetime, _} = content |> String.trim() |> DateTime.from_iso8601()
           datetime
@@ -89,7 +90,7 @@ defmodule IcsFluminusBot.Worker do
         end)
 
       new_last_fetched_iso8601 = DateTime.to_iso8601(new_last_fetched)
-      File.write!("./#{@last_fetched_file}", new_last_fetched_iso8601)
+      File.write!(@last_fetched_file, new_last_fetched_iso8601)
 
       Logger.info(
         "Scheduling next fetch in #{div(@interval, 1000)}s, new_last_fetched = #{
